@@ -35,6 +35,8 @@ defmodule Battleships.GameData do
   The `Players` map contains two `Player` maps under the `player1` and `player2` keys.
   """
 
+  require IEx
+
   # CONSTRAINTS
 
   @board_range 1..10
@@ -56,13 +58,13 @@ defmodule Battleships.GameData do
   @type coordinate :: {col(), row()}
 
 
-  @spec new_coord(col(), row()) :: {:ok, coordinate()} | {:error, :invalid_coordinate}
-  def new_coord(col, row)
+  @spec new_coordinate(col(), row()) :: {:ok, coordinate()} | {:error, :invalid_coordinate}
+  def new_coordinate(col, row)
   when col in @board_range and row in @board_range do
     {:ok, {col, row}}
   end
 
-  def new_coord(_col, _row) do
+  def new_coordinate(_col, _row) do
     {:error, :invalid_coordinate}
   end
 
@@ -116,7 +118,7 @@ defmodule Battleships.GameData do
 
   @spec add_coordinate(MapSet.t(coordinate()), coordinate(), coordinate()) :: {:cont, MapSet.t(coordinate())} | {:halt, {:error, :invalid_coordinate}}
   def add_coordinate(coordinates, {col, row}, {col_offset, row_offset}) do
-    case new_coord(col + col_offset, row + row_offset) do
+    case new_coordinate(col + col_offset, row + row_offset) do
       {:ok, coordinate} ->
         {:cont, MapSet.put(coordinates, coordinate)}
 
@@ -132,12 +134,12 @@ defmodule Battleships.GameData do
   @spec new_board :: %{}
   def new_board, do: %{}
 
-  @spec place_ship(board(), ship()) :: board() | {:error, :overlapping_ship}
-  def place_ship(board, ship) do
+  @spec place_ship_on_board(board(), ship()) :: {:ok, board()} | {:error, :overlapping_ship}
+  def place_ship_on_board(board, ship) do
     if overlaps?(board, ship) do
       {:error, :overlapping_ship}
     else
-      Map.put(board, generate_key(board), ship)
+      {:ok, Map.put(board, generate_key(board), ship)}
     end
   end
 
@@ -149,7 +151,7 @@ defmodule Battleships.GameData do
 
   @spec overlaps?(board(), ship()) :: boolean()
   def overlaps?(board, new_ship) do
-    Enum.any?(board, fn existing_ship ->
+    Enum.any?(board, fn {_key, existing_ship} ->
       not MapSet.disjoint?(existing_ship.coordinates, new_ship.coordinates)
     end)
   end
@@ -169,9 +171,8 @@ defmodule Battleships.GameData do
     Enum.find_value(board, fn {key, ship} ->
       if MapSet.member?(ship.coordinates, coordinate) do
         # Good guess, update accordingly
-        guessed_coordinates = MapSet.put(ship.guessed_coordinates, coordinate)
-        updated_ship = %{ship | guessed_coordinates: guessed_coordinates}
-        {:hit, ship.type, sunk_check(updated_ship), win_check(board), Map.put(board, key, updated_ship)}
+        updated_board = update_in(board, [key, :guessed_coordinates], &MapSet.put(&1, coordinate))
+        {:hit, ship.type, sunk_check(get_in(updated_board, [key])), win_check(board), updated_board}
       else
         # Bad guess, return as-is
         {:miss, :none, :afloat, :no_win, board}
@@ -189,7 +190,7 @@ defmodule Battleships.GameData do
   def sunk?(ship), do: MapSet.equal?(ship.coordinates, ship.guessed_coordinates)
 
   @spec all_sunk?(board()) :: boolean()
-  def all_sunk?(board), do: Enum.all?(board, &sunk?(&1))
+  def all_sunk?(board), do: Enum.all?(board, fn {_key, ship} -> sunk?(ship) end)
 
 
   @type player :: %{
@@ -202,16 +203,75 @@ defmodule Battleships.GameData do
 
   @type data :: %{id: String.t(), player1: player(), player2: player() | nil}
 
-  @spec create_player_data(String.t()) :: player()
-  def create_player_data(name) do
-    %{name: name, board: new_board(), ships_to_place: available_ships(), correct_guesses: MapSet.new(), incorrect_guesses: MapSet.new()}
+  @spec create_player_data(String.t()) :: {:ok, player()} | {:error, :invalid_name}
+  def create_player_data(name) when is_binary(name) do
+    {:ok, %{name: name, board: new_board(), ships_to_place: available_ships(), correct_guesses: MapSet.new(), incorrect_guesses: MapSet.new()}}
   end
 
-  @spec initialise(String.t(), String.t()) :: data()
-  def initialise(game_id, p1_name), do: %{id: game_id, player1: create_player_data(p1_name), player2: nil}
+  def create_player_data(_), do: {:error, :invalid_name}
 
-  @spec add_second_player(data(), String.t()) :: data()
-  def add_second_player(game_data, p2_name), do: %{game_data | player2: create_player_data(p2_name)}
+  @spec initialise(String.t(), String.t()) :: {:ok, data()} | {:error, atom()}
+  def initialise(game_id, p1_name) when is_binary(game_id) do
+    with {:ok, player} <- create_player_data(p1_name) do
+      {:ok, %{id: game_id, player1: player, player2: nil}}
+    else
+      err -> err
+    end
+  end
+
+  def initialise(_, _), do: {:error, :invalid_game_id}
+
+  @spec add_second_player(data(), String.t()) :: {:ok, data()} | {:error, atom()}
+  def add_second_player(game_data, p2_name) do
+    with {:ok, player} <- create_player_data(p2_name) do
+      {:ok, %{game_data | player2: player}}
+    else
+      err -> err
+    end
+  end
+
+  @spec place_ship(data(), :player1 | :player2, ship_type(), direction(), col(), row()) :: {:ok, data()} | {:error, atom()}
+  def place_ship(game_data, player, ship_type, direction, col, row) do
+    with {:ok, p} <- Map.fetch(game_data, player),
+         {:ok, coordinate} <- new_coordinate(col, row),
+         {:ok, ship} <- new_ship(ship_type, direction, coordinate),
+         {:ok, board} <- place_ship_on_board(p.board, ship),
+         ships_to_place <- List.delete(p.ships_to_place, ship_type)
+    do
+      updated_data = game_data
+      |> put_in([player, :board], board)
+      |> put_in([player, :ships_to_place], ships_to_place)
+
+      {:ok, updated_data}
+    else
+      err -> err
+    end
+  end
+
+  @type guess_feedback :: {:hit | :miss, :none | ship_type(), :sunk | :afloat, :win | :no_win }
+
+  @spec make_guess(data(), :player1 | :player2, col(), row()) :: {:ok, data(), guess_feedback()} | {:error, atom()}
+  def make_guess(game_data, player, col, row) do
+    opponent = if player == :player1, do: :player2, else: :player1
+    opponent_board = get_in(game_data, [opponent, :board])
+
+    with {:ok, coordinate} <- new_coordinate(col, row) do
+      {result, ship_type, ship_status, win_status, updated_board} = guess(opponent_board, coordinate)
 
 
+      updated_data = case result do
+        :miss ->
+          game_data
+          |> update_in([player, :incorrect_guesses], &MapSet.put(&1, coordinate))
+        :hit ->
+          game_data
+          |> update_in([player, :correct_guesses], &MapSet.put(&1, coordinate))
+          |> put_in([opponent, :board], updated_board)
+      end
+
+      {:ok, updated_data, {result, ship_type, ship_status, win_status}}
+    else
+      err -> err
+    end
+  end
 end
