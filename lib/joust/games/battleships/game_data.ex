@@ -168,14 +168,15 @@ defmodule Battleships.GameData do
   """
   @spec guess(board(), coordinate()) :: {:hit | :miss, :none | ship_type(), :sunk | :afloat, :win | :no_win, board()}
   def guess(board, coordinate) do
-    Enum.find_value(board, fn {key, ship} ->
+    Enum.find_value(board, {:miss, :none, :afloat, :no_win, board}, fn {key, ship} ->
+      # IEx.pry()
       if MapSet.member?(ship.coordinates, coordinate) do
         # Good guess, update accordingly
         updated_board = update_in(board, [key, :guessed_coordinates], &MapSet.put(&1, coordinate))
-        {:hit, ship.type, sunk_check(get_in(updated_board, [key])), win_check(board), updated_board}
+        {:hit, ship.type, sunk_check(get_in(updated_board, [key])), win_check(updated_board), updated_board}
       else
-        # Bad guess, return as-is
-        {:miss, :none, :afloat, :no_win, board}
+        # Bad guess, return default miss tuple
+        false
       end
     end)
   end
@@ -257,7 +258,6 @@ defmodule Battleships.GameData do
 
     with {:ok, coordinate} <- new_coordinate(col, row) do
       {result, ship_type, ship_status, win_status, updated_board} = guess(opponent_board, coordinate)
-
 
       updated_data = case result do
         :miss ->

@@ -10,6 +10,8 @@ defmodule Joust.Application do
     children = [
       # Starts a worker by calling: Joust.Worker.start_link(arg)
       # {Joust.Worker, arg},
+      {Joust.GamesSupervisor, []},
+      {Registry, [keys: :unique, name: Joust.Registry]}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

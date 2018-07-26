@@ -9,11 +9,8 @@ defmodule Battleships.GameStatem do
   @type state ::
           :initialised
           | :players_setup
-          | :players_set
           | :player1_turn
           | :player2_turn
-          | :player1_win_check
-          | :player2_win_check
           | :game_over
 
   ## CLIENT ACTIONS
@@ -26,7 +23,7 @@ defmodule Battleships.GameStatem do
   the player who initialised the game, and the state is set to :initialised
   """
   def start_link(game_id, p1_name) do
-    GenStateMachine.start_link(__MODULE__, {game_id, p1_name}, name: game_id)
+    GenStateMachine.start_link(__MODULE__, {game_id, p1_name}, name: via_tuple(game_id))
   end
 
   @doc """
@@ -34,12 +31,12 @@ defmodule Battleships.GameStatem do
   a bad name but it'll do for the minute (REVIEW possibly `players_ready`?)
   """
   def add_player(game_id, p2_name) do
-    GenStateMachine.call(game_id, {:add_player, p2_name})
+    GenStateMachine.call(via_tuple(game_id), {:add_player, p2_name})
   end
 
 
-  def position_ship(game_id, player, type, dir, col, row, dir) do
-    GenStateMachine.call(game_id, {:position_ship, player, type, dir, col, row})
+  def position_ship(game_id, player, type, dir, col, row) do
+    GenStateMachine.call(via_tuple(game_id), {:position_ship, player, type, dir, col, row})
   end
 
   @doc """
@@ -50,116 +47,75 @@ defmodule Battleships.GameStatem do
   This can be called by either player once they've placed their ships.
   """
   def set_ship_placement(game_id) do
-    GenStateMachine.call(game_id, :set_ship_placement)
+    GenStateMachine.call(via_tuple(game_id), :set_ship_placement)
   end
 
   @doc """
-  Once a player switches, the state will switch to that players' win check.
+  When making a guess, if it results in a win, the sate will switch to :game_over,
+  and the state machine completes. Otherwise, if the guess does not error, then
+  the state will switch to the other player, with the reply providing feedback
+  necessary for the UI.
   """
-  def guess_coordinate(game_id) do
-    GenStateMachine.call(game_id, :guess_coordinate)
-  end
-
-  @doc """
-  If the win check comes up trumps, it's game over. Otherwise, state will switch
-  back to the other players turn.
-  TODO make the logic a bit less messy server-side
-  """
-  def win_check(game_id, win_or_not) do
-    GenStateMachine.call(game_id, {:win_check, win_or_not})
+  def guess_coordinate(game_id, col, row) do
+    GenStateMachine.call(via_tuple(game_id), {:guess_coordinate, row, col})
   end
 
   ## SERVER CALLBACKS
 
   @impl true
   def init({game_id, p1_name}) do
-    game_data = Data.initialise(game_id, p1_name)
-    {:ok, :initialised, game_data}
+    case Data.initialise(game_id, p1_name) do
+      {:ok, data} ->
+        {:ok, :initialised, data}
+      {:error, reason} ->
+        {:stop, reason}
+    end
   end
 
   @impl true
   def handle_event({:call, from}, {:add_player, p2_name}, :initialised, game_data) do
-    game_data = Data.add_second_player(game_data, p2_name)
-    reply = [{:reply, from, {:ok, game_data}}]
-
-    {:next_state, :players_setup, game_data, reply}
+    case Data.add_second_player(game_data, p2_name) do
+      {:ok, data} ->
+        {:next_state, :players_setup, data, [{:reply, from, {:ok, data}}]}
+      err ->
+        {:keep_state_and_data, [{:reply, from, err}]}
+    end
   end
 
   @impl true
   def handle_event({:call, from}, {:position_ship, player, type, dir, col, row}, :players_setup, game_data) do
-    player = Map.get(game_data, player)
-
-    case player.ships_to_place do
+    case Map.get(game_data, player).ships_to_place do
       [] ->
-        {:keep_state_and_data, [{:reply, from, "All player ships already placed."}]}
+        {:keep_state_and_data, [{:reply, from, {:error, :all_player_ships_placed}}]}
       _available_ships ->
-        place_ship_on_board(from, game_data, player, type, dir, col, row)
-    end
-  end
-
-  defp place_ship_on_board(from, game_data, player, type, dir, col, row) do
-    current_player = Map.get(game_data, player)
-    updated_player_data = place_player_ship_on_board(current_player, type, dir, col, row)
-
-    case updated_player_data do
-      {:ok, data} ->
-        game_data = Map.put(game_data, player, data)
-        {:keep_state, game_data, [{:reply, from, {:ok, game_data}}]}
-      _ ->
-        {:keep_state_and_data, [{:reply, from, {:error, "Something went wrong"}}]}
-    end
-  end
-
-  defp place_player_ship_on_board(player, type, dir, col, row) do
-    with {:ok, coordinate} <- Data.new_coord(col, row),
-        {:ok, ship} <- Data.new_ship(type, dir, coordinate),
-        %{} = updated_board <- Data.place_ship(player.board, ship)
-    do
-      {:ok, %{ player | board: updated_board, ships_to_place: List.delete(player.ships_to_place, type)}}
-    else
-      _ -> :error
+        case Data.place_ship(game_data, player, type, dir, col, row) do
+          {:ok, data} ->
+            {:keep_state, data, [{:reply, from, {:ok, data}}]}
+          err ->
+            {:keep_state_and_data, [{:reply, from, err}]}
+        end
     end
   end
 
   @impl true
-  def handle_event({:call, from}, :set_ship_placement, :players_set, game_data) do
-    case {game_data.player1.ships_to_set, game_data.player2.ships_to_set} do
+  def handle_event({:call, from}, :set_ship_placement, :players_setup, game_data) do
+    case {game_data.player1.ships_to_place, game_data.player2.ships_to_place} do
       {[], []} ->
-        reply = [{:reply, from, {:ok, "Both players' ships are down, good to go!"}}]
-        {:next_state, :player1_turn, game_data, reply}
-
+        {:next_state, :player1_turn, game_data, [{:reply, from, {:ok, game_data}}]}
       _ ->
-        reply = [{:reply, from, {:ok, "Your opponent hasn't finished placing their fleet yet, hang on."}}]
-        {:keep_state_and_data, reply}
+        {:keep_state_and_data, [{:reply, from, {:error, :ship_placement_not_finalised}}]}
     end
   end
 
   @impl true
-  def handle_event({:call, from}, {:guess_coordinate, player, coordinate}, state, game_data)
-      when state in [:player1_turn, :player2_turn] do
-    {:next_state, switch_turn_state(state), game_data,
-     [
-       {:reply, from,
-        {:ok, "#{player_from_state(state)} gone done a guess, let's check if they've won."}}
-     ]}
-  end
-
-  @impl true
-  def handle_event({:call, from}, {:win_check, win_or_not}, state, game_data)
-      when state in [:player1_win_check, :player2_win_check] do
-    case win_or_not do
-      :no_win ->
-        {:next_state, switch_turn_state(state), game_data,
-         [
-           {:reply, from,
-            {:ok, "#{player_from_state(state)} didn't win, it's now #{
-              player_from_state(switch_turn_state(state))
-            }'s turn to guess.'"}}
-         ]}
-
-      :win ->
-        {:next_state, :game_over, game_data,
-         [{:reply, from, {:ok, "#{player_from_state(state)} Won"}}]}
+  def handle_event({:call, from}, {:guess_coordinate, col, row}, state, game_data) when state in [:player1_turn, :player2_turn] do
+    case Data.make_guess(game_data, current_player(state), col, row) do
+      {:ok, data, {_, ship_type, _, :win}} ->
+        {:next_state, :game_over, data, [{:reply, from, {:ok, data, {:hit, ship_type, :sunk, :win}}}]}
+      {:ok, data, guess_feedback} ->
+        {:next_state, switch_player(state), data, [{:reply, from, {:ok, data, guess_feedback}}]}
+      err ->
+        {:keep_state_and_data, [{:reply, from, err}]}
     end
   end
 
@@ -167,21 +123,17 @@ defmodule Battleships.GameStatem do
   # if attempt made to enter impossible state.
   @impl true
   def handle_event({:call, from}, _event_content, _state, _data) do
-    {:keep_state_and_data, [{:reply, from, :error}]}
+    {:keep_state_and_data, [{:reply, from, {:error, :invalid_operation}}]}
   end
 
-  defp switch_turn_state(state) do
-    case state do
-      :player1_turn -> :player1_win_check
-      :player2_turn -> :player2_win_check
-      :player1_win_check -> :player2_turn
-      :player2_win_check -> :player1_turn
-    end
+  defp current_player(:player1_turn), do: :player1
+  defp current_player(:player2_turn), do: :player2
+
+  defp switch_player(:player1_turn), do: :player2_turn
+  defp switch_player(:player2_turn), do: :player1_turn
+
+
+  defp via_tuple(game_id) do
+    {:via, Registry, {Joust.Registry, game_id}}
   end
-
-  defp player_from_state(state) when state in [:player1_turn, :player1_win_check], do: "Player 1"
-  defp player_from_state(state) when state in [:player2_turn, :player2_win_check], do: "Player 2"
-
-
-
 end
