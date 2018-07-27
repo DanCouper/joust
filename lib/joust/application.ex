@@ -8,9 +8,7 @@ defmodule Joust.Application do
   def start(_type, _args) do
     # List all child processes to be supervised
     children = [
-      # Starts a worker by calling: Joust.Worker.start_link(arg)
-      # {Joust.Worker, arg},
-      {Joust.GamesSupervisor, []},
+      {Joust.Games.Supervisor, []},
       {Registry, [keys: :unique, name: Joust.Registry]}
     ]
 

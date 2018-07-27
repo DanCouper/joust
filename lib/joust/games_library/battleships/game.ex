@@ -1,8 +1,10 @@
-defmodule Battleships.GameStatem do
+defmodule Battleships.Game do
   @moduledoc """
   The FSM that controls the game state. Uses `gen_statem`.
   """
   use GenStateMachine
+
+  require IEx
 
   alias Battleships.GameData, as: Data
 
@@ -16,22 +18,32 @@ defmodule Battleships.GameStatem do
   ## CLIENT ACTIONS
 
   @doc """
-  The state machine will initilise when a player starts it. At this point,
-  the only possible action is to add another player.
+  The state machine will initilise when a player starts it.
+
+  At this point, the players still actually need to be added, which conflicts
+  slightly with the above.
+
+  The reason for not initialising with the first player is that the `init`
+  returns `{:ok, pid}`, whereas, for the UI, it is preferable to return `{:ok, data}`.
+
+  So the game _manager_ needs to match in the `{:ok, pid}` to confirm startup,
+  then immediately run `add_player/2` with the first player's name.
+  This should provide insurance against [invalid] games being created that
+  have no players.
 
   The data in the state machine is initialised with a new Player struct containing
   the player who initialised the game, and the state is set to :initialised
   """
-  def start_link(game_id, p1_name) do
-    GenStateMachine.start_link(__MODULE__, {game_id, p1_name}, name: via_tuple(game_id))
+  def start_link(game_id) do
+    GenStateMachine.start_link(__MODULE__, game_id, name: via_tuple(game_id))
   end
 
   @doc """
   Adding another player should transition the state to `players_set` which is
   a bad name but it'll do for the minute (REVIEW possibly `players_ready`?)
   """
-  def add_player(game_id, p2_name) do
-    GenStateMachine.call(via_tuple(game_id), {:add_player, p2_name})
+  def add_player(game_id, name) do
+    GenStateMachine.call(via_tuple(game_id), {:add_player, name})
   end
 
 
@@ -63,8 +75,8 @@ defmodule Battleships.GameStatem do
   ## SERVER CALLBACKS
 
   @impl true
-  def init({game_id, p1_name}) do
-    case Data.initialise(game_id, p1_name) do
+  def init(game_id) do
+    case Data.initialise(game_id) do
       {:ok, data} ->
         {:ok, :initialised, data}
       {:error, reason} ->
@@ -73,8 +85,10 @@ defmodule Battleships.GameStatem do
   end
 
   @impl true
-  def handle_event({:call, from}, {:add_player, p2_name}, :initialised, game_data) do
-    case Data.add_second_player(game_data, p2_name) do
+  def handle_event({:call, from}, {:add_player, name}, :initialised, game_data) do
+    case Data.add_player(game_data, name) do
+      {:ok, %{player2: nil} = data} ->
+        {:keep_state, data, [{:reply, from, {:ok, data}}]}
       {:ok, data} ->
         {:next_state, :players_setup, data, [{:reply, from, {:ok, data}}]}
       err ->
@@ -108,6 +122,8 @@ defmodule Battleships.GameStatem do
   end
 
   @impl true
+  # FIXME the correct/incorect guesses are going in or coming out as wrong way round:
+  # should be {x, y} but they're {y, x}. Investigate where this error is
   def handle_event({:call, from}, {:guess_coordinate, col, row}, state, game_data) when state in [:player1_turn, :player2_turn] do
     case Data.make_guess(game_data, current_player(state), col, row) do
       {:ok, data, {_, ship_type, _, :win}} ->

@@ -22,4 +22,9 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 joust-*.tar
 
+# Ignore all the build crap in the language server directory.
 .elixir_ls/
+
+# Ignore the VS Code settings: not currently modified for this project
+.vscode/
+

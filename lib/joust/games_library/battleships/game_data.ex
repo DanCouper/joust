@@ -202,7 +202,7 @@ defmodule Battleships.GameData do
     incorrect_guesses: MapSet.t(coordinate())
   }
 
-  @type data :: %{id: String.t(), player1: player(), player2: player() | nil}
+  @type data :: %{id: String.t(), game_type: :battleships, player1: player() | nil, player2: player() | nil}
 
   @spec create_player_data(String.t()) :: {:ok, player()} | {:error, :invalid_name}
   def create_player_data(name) when is_binary(name) do
@@ -211,21 +211,29 @@ defmodule Battleships.GameData do
 
   def create_player_data(_), do: {:error, :invalid_name}
 
-  @spec initialise(String.t(), String.t()) :: {:ok, data()} | {:error, atom()}
-  def initialise(game_id, p1_name) when is_binary(game_id) do
-    with {:ok, player} <- create_player_data(p1_name) do
-      {:ok, %{id: game_id, player1: player, player2: nil}}
-    else
-      err -> err
+  @spec initialise(String.t()) :: {:ok, data()} | {:error, atom()}
+  def initialise(game_id) when is_binary(game_id) do
+    {:ok, %{id: game_id, game_type: :battleships, player1: nil, player2: nil}}
+  end
+
+  def initialise(_), do: {:error, :invalid_game_id}
+
+  @spec add_player(data(), String.t()) :: {:ok, data()} | {:error, atom()}
+  @spec add_player(data(), :player1 | :player2, String.t()) :: {:ok, data()} | {:error, atom()}
+  def add_player(game_data, name) do
+    case game_data do
+      %{player1: nil, player2: nil} ->
+        add_player(game_data, :player1, name)
+      %{player1: p1, player2: nil} when not is_nil(p1) ->
+        add_player(game_data, :player2, name)
+      _ ->
+        {:error, :both_players_already_joined}
     end
   end
 
-  def initialise(_, _), do: {:error, :invalid_game_id}
-
-  @spec add_second_player(data(), String.t()) :: {:ok, data()} | {:error, atom()}
-  def add_second_player(game_data, p2_name) do
-    with {:ok, player} <- create_player_data(p2_name) do
-      {:ok, %{game_data | player2: player}}
+  def add_player(game_data, player, name) do
+    with {:ok, player_data} <- create_player_data(name) do
+      {:ok, %{game_data | player => player_data}}
     else
       err -> err
     end
