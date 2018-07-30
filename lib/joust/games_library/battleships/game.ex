@@ -11,8 +11,7 @@ defmodule Battleships.Game do
   @type state ::
           :initialised
           | :players_setup
-          | :player1_turn
-          | :player2_turn
+          | :game_active
           | :game_over
 
   ## CLIENT ACTIONS
@@ -47,8 +46,8 @@ defmodule Battleships.Game do
   end
 
 
-  def position_ship(game_id, player, type, dir, col, row) do
-    GenStateMachine.call(via_tuple(game_id), {:position_ship, player, type, dir, col, row})
+  def position_ship(game_id, player_number, type, dir, col, row) do
+    GenStateMachine.call(via_tuple(game_id), {:position_ship, player_number, type, dir, col, row})
   end
 
   @doc """
@@ -87,7 +86,7 @@ defmodule Battleships.Game do
   @impl true
   def handle_event({:call, from}, {:add_player, name}, :initialised, game_data) do
     case Data.add_player(game_data, name) do
-      {:ok, %{player2: nil} = data} ->
+      {:ok, %{registered_players: rps, max_players: mps} = data} when rps < mps ->
         {:keep_state, data, [{:reply, from, {:ok, data}}]}
       {:ok, data} ->
         {:next_state, :players_setup, data, [{:reply, from, {:ok, data}}]}
@@ -97,12 +96,12 @@ defmodule Battleships.Game do
   end
 
   @impl true
-  def handle_event({:call, from}, {:position_ship, player, type, dir, col, row}, :players_setup, game_data) do
-    case Map.get(game_data, player).ships_to_place do
+  def handle_event({:call, from}, {:position_ship, player_number, type, dir, col, row}, :players_setup, game_data) do
+    case get_in(game_data, [:player, player_number, :ships_to_place]) do
       [] ->
         {:keep_state_and_data, [{:reply, from, {:error, :all_player_ships_placed}}]}
       _available_ships ->
-        case Data.place_ship(game_data, player, type, dir, col, row) do
+        case Data.place_ship(game_data, player_number, type, dir, col, row) do
           {:ok, data} ->
             {:keep_state, data, [{:reply, from, {:ok, data}}]}
           err ->
@@ -113,10 +112,11 @@ defmodule Battleships.Game do
 
   @impl true
   def handle_event({:call, from}, :set_ship_placement, :players_setup, game_data) do
-    case {game_data.player1.ships_to_place, game_data.player2.ships_to_place} do
-      {[], []} ->
-        {:next_state, :player1_turn, game_data, [{:reply, from, {:ok, game_data}}]}
-      _ ->
+    players = Map.get(game_data, :players)
+    case Enum.all?(players, fn %{ships_to_place: stp} -> Enum.empty?(stp) end) do
+      true ->
+        {:next_state, :game_active, game_data, [{:reply, from, {:ok, game_data}}]}
+      false ->
         {:keep_state_and_data, [{:reply, from, {:error, :ship_placement_not_finalised}}]}
     end
   end

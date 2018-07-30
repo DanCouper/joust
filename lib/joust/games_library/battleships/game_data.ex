@@ -202,7 +202,14 @@ defmodule Battleships.GameData do
     incorrect_guesses: MapSet.t(coordinate())
   }
 
-  @type data :: %{id: String.t(), game_type: :battleships, player1: player() | nil, player2: player() | nil}
+  @type game_data :: %{
+    id: String.t(),
+    game_type: :battleships,
+    current_player: non_neg_integer(),
+    max_players: non_neg_integer(),
+    registered_players: non_neg_integer(),
+    players: %{ integer() => player() }
+  }
 
   @spec create_player_data(String.t()) :: {:ok, player()} | {:error, :invalid_name}
   def create_player_data(name) when is_binary(name) do
@@ -211,46 +218,67 @@ defmodule Battleships.GameData do
 
   def create_player_data(_), do: {:error, :invalid_name}
 
-  @spec initialise(String.t()) :: {:ok, data()} | {:error, atom()}
+  @spec initialise(String.t()) :: {:ok, game_data()} | {:error, atom()}
   def initialise(game_id) when is_binary(game_id) do
-    {:ok, %{id: game_id, game_type: :battleships, player1: nil, player2: nil}}
+    game_data = %{
+      id: game_id,
+      game_type: :battleships,
+      current_player: 1,
+      registered_players: 0,
+      max_players: 2,
+      players: %{}
+    }
+
+    {:ok, game_data}
   end
 
   def initialise(_), do: {:error, :invalid_game_id}
 
-  @spec add_player(data(), String.t()) :: {:ok, data()} | {:error, atom()}
-  @spec add_player(data(), :player1 | :player2, String.t()) :: {:ok, data()} | {:error, atom()}
-  def add_player(game_data, name) do
-    case game_data do
-      %{player1: nil, player2: nil} ->
-        add_player(game_data, :player1, name)
-      %{player1: p1, player2: nil} when not is_nil(p1) ->
-        add_player(game_data, :player2, name)
-      _ ->
-        {:error, :both_players_already_joined}
-    end
-  end
-
-  def add_player(game_data, player, name) do
+  @spec add_player(game_data(), String.t()) :: {:ok, game_data()} | {:error, atom()}
+  def add_player(%{registered_players: registered_players, max_players: max_players} = game_data, name) when registered_players < max_players do
     with {:ok, player_data} <- create_player_data(name) do
-      {:ok, %{game_data | player => player_data}}
+      updated_data = game_data
+        |> put_in([:registered_players], registered_players + 1)
+        |> put_in([:players, registered_players + 1], player_data)
+
+      {:ok, updated_data}
     else
       err -> err
     end
   end
 
-  @spec place_ship(data(), :player1 | :player2, ship_type(), direction(), col(), row()) :: {:ok, data()} | {:error, atom()}
-  def place_ship(game_data, player, ship_type, direction, col, row) do
-    with {:ok, p} <- Map.fetch(game_data, player),
+  def add_player(_game_data, _name) do
+    {:error, :all_players_already_joined}
+  end
+
+  @doc """
+  The {:ok, data}/{:error, reason} contract is broken if I use a
+  get_in to access the player directly. And fetch returns {:ok, data}/:error.
+  So this is a necessary evil afaics to keep consistency.
+  """
+  @spec fetch_player(game_data(), integer()) :: {:ok, player()} | {:error, :no_player_matching_id}
+  def fetch_player(game_data, player_number) do
+    with {:ok, players} <- Map.fetch(game_data, :players),
+         {:ok, player} <- Map.fetch(players, player_number)
+    do
+      {:ok, player}
+    else
+      _ ->
+        {:error, :no_player_matching_id}
+    end
+  end
+
+  @spec place_ship(game_data(), integer(), ship_type(), direction(), col(), row()) :: {:ok, game_data()} | {:error, atom()}
+  def place_ship(game_data, player_number, ship_type, direction, col, row) do
+    with {:ok, player} <- fetch_player(game_data, player_number),
          {:ok, coordinate} <- new_coordinate(col, row),
          {:ok, ship} <- new_ship(ship_type, direction, coordinate),
-         {:ok, board} <- place_ship_on_board(p.board, ship),
-         ships_to_place <- List.delete(p.ships_to_place, ship_type)
+         {:ok, board} <- place_ship_on_board(player.board, ship),
+         ships_to_place <- List.delete(player.ships_to_place, ship_type)
     do
       updated_data = game_data
-      |> put_in([player, :board], board)
-      |> put_in([player, :ships_to_place], ships_to_place)
-
+        |> put_in([:players, player_number, :board], board)
+        |> put_in([:players, player_number, :ships_to_place], ships_to_place)
       {:ok, updated_data}
     else
       err -> err
@@ -259,10 +287,11 @@ defmodule Battleships.GameData do
 
   @type guess_feedback :: {:hit | :miss, :none | ship_type(), :sunk | :afloat, :win | :no_win }
 
-  @spec make_guess(data(), :player1 | :player2, col(), row()) :: {:ok, data(), guess_feedback()} | {:error, atom()}
-  def make_guess(game_data, player, col, row) do
-    opponent = if player == :player1, do: :player2, else: :player1
-    opponent_board = get_in(game_data, [opponent, :board])
+  @spec make_guess(game_data(), integer(), col(), row()) :: {:ok, game_data(), guess_feedback()} | {:error, atom()}
+  def make_guess(game_data, player_number, col, row) do
+    # FIXME gotta do a generic switch between players here
+    opponent_number = if player_number == 1, do: 2, else: 1
+    opponent_board = get_in(game_data, [:players, opponent_number, :board])
 
     with {:ok, coordinate} <- new_coordinate(col, row) do
       {result, ship_type, ship_status, win_status, updated_board} = guess(opponent_board, coordinate)
@@ -270,11 +299,11 @@ defmodule Battleships.GameData do
       updated_data = case result do
         :miss ->
           game_data
-          |> update_in([player, :incorrect_guesses], &MapSet.put(&1, coordinate))
+            |> update_in([:players, player_number, :incorrect_guesses], &MapSet.put(&1, coordinate))
         :hit ->
           game_data
-          |> update_in([player, :correct_guesses], &MapSet.put(&1, coordinate))
-          |> put_in([opponent, :board], updated_board)
+            |> update_in([:players, player_number, :correct_guesses], &MapSet.put(&1, coordinate))
+            |> put_in([:players, opponent_number, :board], updated_board)
       end
 
       {:ok, updated_data, {result, ship_type, ship_status, win_status}}
