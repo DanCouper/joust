@@ -2,7 +2,11 @@ defmodule GameDataFixtures do
   alias Joust.Games.Supervisor, as: Manager
   alias Battleships.GameData, as: Data
   alias Battleships.Game, as: Game
-  @doc "Directly create a full map of basic game data prior to guesses"
+  @doc """
+  Directly create a full map of basic game data prior to guesses
+
+  For testing the GameData module directly.
+  """
   def simple_populate_game_data do
     with {:ok, data} <- Data.initialise("1"),
          {:ok, data} <- Data.add_player(data, "Dan"),
@@ -26,6 +30,12 @@ defmodule GameDataFixtures do
     end
   end
 
+  @doc """
+  Create a supervised game, and place all ships.
+
+  For testing the application. Note that all `Game` functions
+  accept the game ID, which is used to look up the PID in the Registry.
+  """
   def setup_game_board_4real do
     {:ok, id} = Manager.start_game(:battleships)
 
