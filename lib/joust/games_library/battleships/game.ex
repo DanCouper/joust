@@ -46,8 +46,8 @@ defmodule Battleships.Game do
   end
 
 
-  def position_ship(game_id, player_number, type, dir, col, row) do
-    GenStateMachine.call(via_tuple(game_id), {:position_ship, player_number, type, dir, col, row})
+  def position_ship(game_id, player_number, type, dir, x, y) do
+    GenStateMachine.call(via_tuple(game_id), {:position_ship, player_number, type, dir, x, y})
   end
 
   @doc """
@@ -64,11 +64,11 @@ defmodule Battleships.Game do
   @doc """
   When making a guess, if it results in a win, the sate will switch to :game_over,
   and the state machine completes. Otherwise, if the guess does not error, then
-  the state will switch to the other player, with the reply providing feedback
-  necessary for the UI.
+  the state will stay as :game_active, with the reply providing feedback
+  necessary for the UI, and the `current_player` field in the game data will increment.
   """
-  def guess_coordinate(game_id, col, row) do
-    GenStateMachine.call(via_tuple(game_id), {:guess_coordinate, row, col})
+  def guess_coordinate(game_id, x, y) do
+    GenStateMachine.call(via_tuple(game_id), {:guess_coordinate, x, y})
   end
 
   ## SERVER CALLBACKS
@@ -96,12 +96,12 @@ defmodule Battleships.Game do
   end
 
   @impl true
-  def handle_event({:call, from}, {:position_ship, player_number, type, dir, col, row}, :players_setup, game_data) do
+  def handle_event({:call, from}, {:position_ship, player_number, type, dir, x, y}, :players_setup, game_data) do
     case get_in(game_data, [:player, player_number, :ships_to_place]) do
       [] ->
         {:keep_state_and_data, [{:reply, from, {:error, :all_player_ships_placed}}]}
       _available_ships ->
-        case Data.place_ship(game_data, player_number, type, dir, col, row) do
+        case Data.place_ship(game_data, player_number, type, dir, x, y) do
           {:ok, data} ->
             {:keep_state, data, [{:reply, from, {:ok, data}}]}
           err ->
@@ -112,8 +112,13 @@ defmodule Battleships.Game do
 
   @impl true
   def handle_event({:call, from}, :set_ship_placement, :players_setup, game_data) do
-    players = Map.get(game_data, :players)
-    case Enum.all?(players, fn %{ships_to_place: stp} -> Enum.empty?(stp) end) do
+    all_ships_placed = game_data
+      |> Map.get(:players)
+      |> Enum.all?(fn {_, %{ships_to_place: ships_to_place}} ->
+        Enum.empty?(ships_to_place)
+      end)
+
+    case all_ships_placed do
       true ->
         {:next_state, :game_active, game_data, [{:reply, from, {:ok, game_data}}]}
       false ->
@@ -124,12 +129,13 @@ defmodule Battleships.Game do
   @impl true
   # FIXME the correct/incorect guesses are going in or coming out as wrong way round:
   # should be {x, y} but they're {y, x}. Investigate where this error is
-  def handle_event({:call, from}, {:guess_coordinate, col, row}, state, game_data) when state in [:player1_turn, :player2_turn] do
-    case Data.make_guess(game_data, current_player(state), col, row) do
+  def handle_event({:call, from}, {:guess_coordinate, x, y}, :game_active, game_data) do
+    case Data.make_guess(game_data, x, y) do
       {:ok, data, {_, ship_type, _, :win}} ->
         {:next_state, :game_over, data, [{:reply, from, {:ok, data, {:hit, ship_type, :sunk, :win}}}]}
       {:ok, data, guess_feedback} ->
-        {:next_state, switch_player(state), data, [{:reply, from, {:ok, data, guess_feedback}}]}
+        updated_data = switch_player(data)
+        {:keep_state, updated_data, [{:reply, from, {:ok, updated_data, guess_feedback}}]}
       err ->
         {:keep_state_and_data, [{:reply, from, err}]}
     end
@@ -142,12 +148,12 @@ defmodule Battleships.Game do
     {:keep_state_and_data, [{:reply, from, {:error, :invalid_operation}}]}
   end
 
-  defp current_player(:player1_turn), do: :player1
-  defp current_player(:player2_turn), do: :player2
-
-  defp switch_player(:player1_turn), do: :player2_turn
-  defp switch_player(:player2_turn), do: :player1_turn
-
+  defp switch_player(data) do
+    case data.current_player == data.max_players do
+      true ->  %{ data | current_player: 1 }
+      false -> %{ data | current_player: data.current_player + 1 }
+    end
+  end
 
   defp via_tuple(game_id) do
     {:via, Registry, {Joust.Registry, game_id}}

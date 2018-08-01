@@ -287,13 +287,16 @@ defmodule Battleships.GameData do
 
   @type guess_feedback :: {:hit | :miss, :none | ship_type(), :sunk | :afloat, :win | :no_win }
 
-  @spec make_guess(game_data(), integer(), col(), row()) :: {:ok, game_data(), guess_feedback()} | {:error, atom()}
-  def make_guess(game_data, player_number, col, row) do
+  @spec make_guess(game_data(), col(), row()) :: {:ok, game_data(), guess_feedback()} | {:error, atom()}
+  def make_guess(game_data, col, row) do
     # FIXME gotta do a generic switch between players here
+    player_number = game_data.current_player
     opponent_number = if player_number == 1, do: 2, else: 1
     opponent_board = get_in(game_data, [:players, opponent_number, :board])
 
-    with {:ok, coordinate} <- new_coordinate(col, row) do
+    with {:ok, coordinate} <- new_coordinate(col, row),
+         {:ok, game_data} <- check_unguessed(game_data, coordinate)
+    do
       {result, ship_type, ship_status, win_status, updated_board} = guess(opponent_board, coordinate)
 
       updated_data = case result do
@@ -309,6 +312,14 @@ defmodule Battleships.GameData do
       {:ok, updated_data, {result, ship_type, ship_status, win_status}}
     else
       err -> err
+    end
+  end
+
+  def check_unguessed(game_data, coordinate) do
+    player = get_in(game_data, [:players, game_data.current_player])
+    case MapSet.member?(player.correct_guesses, coordinate) || MapSet.member?(player.incorrect_guesses, coordinate) do
+      true -> {:error, :coordinate_already_guessed}
+      false -> {:ok, game_data}
     end
   end
 end
