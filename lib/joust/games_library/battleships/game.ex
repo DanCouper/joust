@@ -7,6 +7,7 @@ defmodule Battleships.Game do
   require IEx
 
   alias Battleships.GameData, as: Data
+  alias Joust.Utils
 
   @type state ::
           :initialised
@@ -34,7 +35,7 @@ defmodule Battleships.Game do
   the player who initialised the game, and the state is set to :initialised
   """
   def start_link(game_id) do
-    GenStateMachine.start_link(__MODULE__, game_id, name: via_tuple(game_id))
+    GenStateMachine.start_link(__MODULE__, game_id, name: Utils.via_tuple(game_id))
   end
 
   @doc """
@@ -42,12 +43,12 @@ defmodule Battleships.Game do
   a bad name but it'll do for the minute (REVIEW possibly `players_ready`?)
   """
   def add_player(game_id, name) do
-    GenStateMachine.call(via_tuple(game_id), {:add_player, name})
+    GenStateMachine.call(Utils.via_tuple(game_id), {:add_player, name})
   end
 
 
   def position_ship(game_id, player_number, type, dir, x, y) do
-    GenStateMachine.call(via_tuple(game_id), {:position_ship, player_number, type, dir, x, y})
+    GenStateMachine.call(Utils.via_tuple(game_id), {:position_ship, player_number, type, dir, x, y})
   end
 
   @doc """
@@ -58,7 +59,7 @@ defmodule Battleships.Game do
   This can be called by either player once they've placed their ships.
   """
   def set_ship_placement(game_id) do
-    GenStateMachine.call(via_tuple(game_id), :set_ship_placement)
+    GenStateMachine.call(Utils.via_tuple(game_id), :set_ship_placement)
   end
 
   @doc """
@@ -68,7 +69,7 @@ defmodule Battleships.Game do
   necessary for the UI, and the `current_player` field in the game data will increment.
   """
   def guess_coordinate(game_id, x, y) do
-    GenStateMachine.call(via_tuple(game_id), {:guess_coordinate, x, y})
+    GenStateMachine.call(Utils.via_tuple(game_id), {:guess_coordinate, x, y})
   end
 
   ## SERVER CALLBACKS
@@ -127,8 +128,6 @@ defmodule Battleships.Game do
   end
 
   @impl true
-  # FIXME the correct/incorect guesses are going in or coming out as wrong way round:
-  # should be {x, y} but they're {y, x}. Investigate where this error is
   def handle_event({:call, from}, {:guess_coordinate, x, y}, :game_active, game_data) do
     case Data.make_guess(game_data, x, y) do
       {:ok, data, {_, ship_type, _, :win}} ->
@@ -153,9 +152,5 @@ defmodule Battleships.Game do
       true ->  %{ data | current_player: 1 }
       false -> %{ data | current_player: data.current_player + 1 }
     end
-  end
-
-  defp via_tuple(game_id) do
-    {:via, Registry, {Joust.Registry, game_id}}
   end
 end

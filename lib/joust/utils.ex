@@ -15,4 +15,10 @@ defmodule Joust.Utils do
   def generate_id do
     Integer.to_string(:rand.uniform(4294967296), 32) <> Integer.to_string(:rand.uniform(4294967296), 32)
   end
+
+
+
+  def via_tuple(id) do
+    {:via, Registry, {Joust.Registry, id}}
+  end
 end

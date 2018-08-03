@@ -52,7 +52,12 @@ defmodule Joust.Games.Supervisor do
       Battleships.Game
   """
   def module_delegator(atom_identifier) do
-    game_identifier = atom_identifier |> to_string() |> String.capitalize()
+    game_identifier = atom_identifier
+    |> to_string()
+    |> String.split("_")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join
+
     Module.concat(game_identifier, Game)
   end
 end
