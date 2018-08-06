@@ -37,7 +37,7 @@ defmodule GameDataFixtures do
   accept the game ID, which is used to look up the PID in the Registry.
   """
   def setup_game_board_4real do
-    {:ok, id} = Manager.start_game(:battleships)
+    {:ok, id} = Manager.initialise_new_game(:battleships)
 
     Game.add_player(id, "Dan")
     Game.add_player(id, "Nad")

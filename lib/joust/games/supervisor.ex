@@ -4,6 +4,7 @@ defmodule Joust.Games.Supervisor do
   as you fancy!
   """
 
+  require Logger
   use DynamicSupervisor
 
   def start_link(_) do
@@ -18,11 +19,12 @@ defmodule Joust.Games.Supervisor do
     DynamicSupervisor.init(opts)
   end
 
-  def start_game(game_type) do
+  def initialise_new_game(game_type) do
     game_id = Joust.Utils.generate_id()
 
     case start_game_process(game_type, game_id) do
       {:ok, _pid} ->
+        Logger.info("Game of type #{Atom.to_string(game_type)} started, registered under id #{game_id}.")
         {:ok, game_id}
       {:error, {:undef, _}} ->
         {:error, :nonexistant_game_type}
@@ -50,6 +52,8 @@ defmodule Joust.Games.Supervisor do
 
       iex> module_delegator(:battleships)
       Battleships.Game
+      iex> module_delegator(:noughts_and_crosses)
+      NoughtsAndCrosses.Game
   """
   def module_delegator(atom_identifier) do
     game_identifier = atom_identifier
