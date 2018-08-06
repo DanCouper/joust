@@ -6,13 +6,31 @@ use Mix.Config
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we use it
 # with webpack to recompile .js and .css sources.
+#
+# HTTP2 is enabled, following this guide:
+# https://medium.com/@apoint/switch-your-phoenix-app-to-http-2-in-just-a-few-minutes-cf86f613389
 config :joust, JoustWeb.Endpoint,
-  http: [port: 5000],
+  adapter: Phoenix.Endpoint.Cowboy2Adapter,
+  https: [port: 5001, keyfile: "priv/server.key", certfile: "priv/server.pem"],
   debug_errors: true,
   code_reloader: true,
   check_origin: false,
   watchers: [node: ["node_modules/webpack/bin/webpack.js", "--mode", "development", "--watch-stdin",
                     cd: Path.expand("../assets", __DIR__)]]
+
+
+# Extended config, allowing for a redirect if the HTTP endpoint is hit:
+# config :joust, JoustWeb.Endpoint,
+#   http: [port: 5000],
+#   url: [scheme: "https", host: "localhost:5001"],
+#   adapter: Phoenix.Endpoint.Cowboy2Adapter,
+#   https: [compress: true, port: 5001, keyfile: "priv/server.key", certfile: "priv/server.pem"],
+#   force_ssl: [hsts: true],
+#   debug_errors: true,
+#   code_reloader: true,
+#   check_origin: false,
+#   watchers: [node: ["node_modules/webpack/bin/webpack.js", "--mode", "development", "--watch-stdin",
+#                     cd: Path.expand("../assets", __DIR__)]]
 
 # ## SSL Support
 #

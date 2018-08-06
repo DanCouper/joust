@@ -47,3 +47,6 @@ npm-debug.log
 # Ignore the VS Code settings: not currently modified for this project
 .vscode/
 
+# Ignore the certificates generated for development to allow HTTPS
+priv/server.key
+priv/server.pem
