@@ -1,5 +1,5 @@
 defmodule GameDataFixtures do
-  alias Joust.Games.Supervisor, as: Manager
+  alias Joust.GameSupervisor, as: Manager
   alias Battleships.GameData, as: Data
   alias Battleships.Game, as: Game
   @doc """

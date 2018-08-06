@@ -8,7 +8,7 @@ defmodule Joust.Application do
   def start(_type, _args) do
     # List all child processes to be supervised
     children = [
-      {Joust.Games.Supervisor, []},
+      {Joust.GameSupervisor, []},
       {Registry, [keys: :unique, name: Joust.Registry]}
     ]
 

@@ -65,5 +65,5 @@ defmodule Joust do
   the game state itself
   """
   @spec initialise_new_game(atom()) :: {:ok, String.t()} | {:error, :nonexistant_game_type}
-  defdelegate initialise_new_game(game_type), to: Joust.Games.Supervisor
+  defdelegate initialise_new_game(game_type), to: Joust.GameSupervisor
 end

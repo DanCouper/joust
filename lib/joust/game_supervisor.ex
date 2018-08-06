@@ -1,16 +1,19 @@
-defmodule Joust.Games.Supervisor do
+defmodule Joust.GameSupervisor do
   @moduledoc """
   The supervisor that allows spawning of games. Spawn as many
   as you fancy!
   """
 
   require Logger
+
   use DynamicSupervisor
 
+  @doc false
   def start_link(_) do
     DynamicSupervisor.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
+  @impl true
   def init(:ok) do
     opts = [
       strategy: :one_for_one
@@ -19,20 +22,33 @@ defmodule Joust.Games.Supervisor do
     DynamicSupervisor.init(opts)
   end
 
+  @doc """
+  Given a game type, spawn a game process with the game struct as the state.
+  Return value is the game's ID, allowing lookup in the registry, rather than
+  the game state itself
+  """
+  @spec initialise_new_game(atom()) :: {:ok, String.t()} | {:error, :nonexistant_game_type}
   def initialise_new_game(game_type) do
     game_id = Joust.Utils.generate_id()
 
     case start_game_process(game_type, game_id) do
       {:ok, _pid} ->
-        Logger.info("Game of type #{Atom.to_string(game_type)} started, registered under id #{game_id}.")
+        Logger.info(
+          "Game of type #{Atom.to_string(game_type)} started, registered under id #{game_id}."
+        )
+
         {:ok, game_id}
+
       {:error, {:undef, _}} ->
         {:error, :nonexistant_game_type}
+
       err ->
         err
     end
   end
 
+  # Internal logic for spawning a game: the given atom has to be converted to a module name
+  # and then the game can be spawned and registered using the generated ID.
   defp start_game_process(game_type, game_id) do
     game_spec = %{
       :id => __MODULE__,
@@ -55,13 +71,9 @@ defmodule Joust.Games.Supervisor do
       iex> module_delegator(:noughts_and_crosses)
       NoughtsAndCrosses.Game
   """
-  def module_delegator(atom_identifier) do
-    game_identifier = atom_identifier
-    |> to_string()
-    |> String.split("_")
-    |> Enum.map(&String.capitalize/1)
-    |> Enum.join
-
-    Module.concat(game_identifier, Game)
+  def module_delegator(atom_identifier, game_submodule \\ Game) do
+    atom_identifier
+    |> Joust.Utils.atom_to_modname()
+    |> Module.concat(game_submodule)
   end
 end
