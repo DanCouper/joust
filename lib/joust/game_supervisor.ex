@@ -29,7 +29,7 @@ defmodule Joust.GameSupervisor do
   """
   @spec initialise_new_game(atom()) :: {:ok, String.t()} | {:error, :nonexistant_game_type}
   def initialise_new_game(game_type) do
-    game_id = Joust.Utils.generate_id()
+    game_id = Joust.Utils.generate_id!()
 
     case start_game_process(game_type, game_id) do
       {:ok, _pid} ->
@@ -52,7 +52,7 @@ defmodule Joust.GameSupervisor do
   defp start_game_process(game_type, game_id) do
     game_spec = %{
       :id => __MODULE__,
-      :start => {module_delegator(game_type), :start_link, [game_id]},
+      :start => {Utils.module_delegator(game_type), :start_link, [game_id]},
       :restart => :transient,
       :shutdown => 5000
     }
@@ -61,19 +61,13 @@ defmodule Joust.GameSupervisor do
   end
 
   @doc """
-  Given an atom identifier, for example :battleships, generate a module
-  identifier that can be used to start the main Game.start_link process
-
-  ## Example
-
-      iex> module_delegator(:battleships)
-      Battleships.Game
-      iex> module_delegator(:noughts_and_crosses)
-      NoughtsAndCrosses.Game
+  TODO  fill this out. On unscheduled termination, a game should
+  reinitialise with the state present at point of failure.
+  This should be pulled from an ETS store, and `start_link`
+  will cause the init function to return with the state/data
+  pulled from the store rather than the standard return.
   """
-  def module_delegator(atom_identifier, game_submodule \\ Game) do
-    atom_identifier
-    |> Joust.Utils.atom_to_modname()
-    |> Module.concat(game_submodule)
+  def recover_game(game_id) do
+    true
   end
 end

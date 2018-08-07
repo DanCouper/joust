@@ -11,8 +11,8 @@ defmodule Joust.Utils do
   the number of different values expressible in 32 bits,
   see: http://googology.wikia.com/wiki/4294967296
   """
-  @spec generate_id() :: String.t()
-  def generate_id do
+  @spec generate_id!() :: String.t()
+  def generate_id! do
     Integer.to_string(:rand.uniform(4_294_967_296), 32) <>
       Integer.to_string(:rand.uniform(4_294_967_296), 32)
   end
@@ -34,6 +34,24 @@ defmodule Joust.Utils do
     |> String.split("_")
     |> Enum.map(&String.capitalize/1)
     |> Enum.join()
+  end
+
+  @doc """
+  Given an atom identifier, for example :battleships, generate a module
+  identifier that can be used to, for example, start the main Game.start_link process
+
+  ## Example
+
+      iex> module_delegator(:battleships)
+      Battleships.Game
+      iex> module_delegator(:noughts_and_crosses)
+      NoughtsAndCrosses.Game
+  """
+  @spec module_delegator(atom(), module()) :: module()
+  def module_delegator(atom_identifier, submodule \\ Game) do
+    atom_identifier
+    |> atom_to_modname()
+    |> Module.concat(game_submodule)
   end
 
   @doc """
