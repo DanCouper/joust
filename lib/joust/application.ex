@@ -9,7 +9,7 @@ defmodule Joust.Application do
     # List all child processes to be supervised
     children = [
       JoustWeb.Endpoint,
-      JoustWeb.Presence,
+      # JoustWeb.Presence,
       Joust.GameSupervisor,
       {Registry, [keys: :unique, name: Joust.Registry]}
     ]

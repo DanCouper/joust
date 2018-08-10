@@ -51,7 +51,7 @@ defmodule Joust.Utils do
   def module_delegator(atom_identifier, submodule \\ Game) do
     atom_identifier
     |> atom_to_modname()
-    |> Module.concat(game_submodule)
+    |> Module.concat(submodule)
   end
 
   @doc """
